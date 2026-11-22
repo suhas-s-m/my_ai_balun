@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SubstrateModel version="1.0">
+    <Materials>
+        <Material name="Copper" cond="5.80e+07" mur="1.0" />
+        <Material name="Rogers RO4350B (Standard RF Laminate)" er="3.66" tand="0.0037" />
+        <Material name="AIR" er="1.0" tand="0.0" />
+    </Materials>
+    <Layers>
+        <Layer name="Cover_Air" material="AIR" thick="5.0" thickunit="mm" type="air" />
+        <Layer name="Top_Conductor" material="Copper" thick="35.00" thickunit="micron" layer="1" sheet="false" />
+        <Layer name="Substrate" material="Rogers RO4350B (Standard RF Laminate)" thick="0.1680" thickunit="mm" type="dielectric" />
+        <Layer name="Bottom_Ground" material="Copper" thick="35.00" thickunit="micron" layer="2" sheet="false" />
+    </Layers>
+    <Vias>
+        <Via name="GND_Via" material="Copper" layer="3" from="Top_Conductor" to="Bottom_Ground" />
+    </Vias>
+</SubstrateModel>

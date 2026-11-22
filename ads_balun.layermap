@@ -1,0 +1,6 @@
+# Keysight ADS GDSII Inbound Layer Map
+# GDS_Layer  GDS_Datatype  ADS_Layer_Name  ADS_Purpose
+1            0             cond            drawing
+2            0             cond2           drawing
+3            0             hole            drawing
+4            0             pin             drawing
