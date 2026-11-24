@@ -52,32 +52,32 @@ def generate_stackup_diagram(output_path: str = "pcb_stackup_2layer.png"):
     # Trace 1: 50-Ohm Input Feed
     rect_t1 = Rectangle((1.5, y_top_cu), 1.8, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.5)
     ax.add_patch(rect_t1)
-    ax.text(2.4, y_top_cu + h_cu / 2.0, "50 Ω Feed\n(W = 0.368 mm)",
-            ha='center', va='center', fontsize=8, fontweight='bold', color='white')
+    ax.text(2.4, y_top_cu + h_cu + 0.12, "50 Ω Feed\n(W = 0.368 mm)",
+            ha='center', va='bottom', fontsize=7.5, fontweight='bold', color='#92400e')
 
     # Trace 2: Pixelated Balun Discretized Matrix
-    rect_pix1 = Rectangle((4.0, y_top_cu), 0.7, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.2)
-    rect_pix2 = Rectangle((4.8, y_top_cu), 0.7, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.2)
-    rect_pix3 = Rectangle((5.6, y_top_cu), 0.7, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.2)
-    rect_pix4 = Rectangle((6.4, y_top_cu), 0.7, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.2)
+    rect_pix1 = Rectangle((4.0, y_top_cu), 0.6, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.2)
+    rect_pix2 = Rectangle((4.7, y_top_cu), 0.6, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.2)
+    rect_pix3 = Rectangle((5.4, y_top_cu), 0.6, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.2)
+    rect_pix4 = Rectangle((6.1, y_top_cu), 0.6, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.2)
     for p in [rect_pix1, rect_pix2, rect_pix3, rect_pix4]:
         ax.add_patch(p)
-    ax.text(5.5, y_top_cu + h_cu / 2.0, "Pixelated Balun Matrix (100 µm Pixels, 20% Overlap)",
-            ha='center', va='center', fontsize=8, fontweight='bold', color='white')
+    ax.text(5.35, y_top_cu + h_cu + 0.12, "Pixelated Matrix\n(18x18, 100 µm Pixels)",
+            ha='center', va='bottom', fontsize=7.5, fontweight='bold', color='#92400e')
 
     # Trace 3: Differential Balanced Outputs
-    rect_t2 = Rectangle((7.8, y_top_cu), 1.2, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.5)
-    rect_t3 = Rectangle((9.3, y_top_cu), 1.2, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.5)
+    rect_t2 = Rectangle((7.4, y_top_cu), 1.0, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.5)
+    rect_t3 = Rectangle((8.7, y_top_cu), 1.0, h_cu, facecolor='#d97706', edgecolor='#78350f', lw=1.5)
     ax.add_patch(rect_t2)
     ax.add_patch(rect_t3)
-    ax.text(8.4, y_top_cu + h_cu / 2.0, "Port 2 (+)", ha='center', va='center', fontsize=8, fontweight='bold', color='white')
-    ax.text(9.9, y_top_cu + h_cu / 2.0, "Port 3 (-)", ha='center', va='center', fontsize=8, fontweight='bold', color='white')
+    ax.text(7.9, y_top_cu + h_cu + 0.12, "Port 2 (+)\n(50 Ω)", ha='center', va='bottom', fontsize=7.5, fontweight='bold', color='#92400e')
+    ax.text(9.2, y_top_cu + h_cu + 0.12, "Port 3 (-)\n(50 Ω)", ha='center', va='bottom', fontsize=7.5, fontweight='bold', color='#92400e')
 
     # Dimension and Layer Annotations
     # Layer 1 Tag
     ax.annotate(
         "LAYER 1 (TOP COPPER, 35 µm):\n• 50 Ω Microstrip Feeds (W = 0.368 mm)\n• 18x18 Pixelated Balun Matrix\n• SMA Center Launch Pads",
-        xy=(0.5, y_top_cu + h_cu / 2.0), xytext=(-3.8, y_top_cu + 0.1),
+        xy=(0.5, y_top_cu + h_cu / 2.0), xytext=(-3.8, y_top_cu + 0.2),
         fontsize=8.0, fontweight='bold', color='#92400e',
         bbox=dict(boxstyle="round,pad=0.4", facecolor='#fef3c7', edgecolor='#d97706', lw=1.0),
         arrowprops=dict(arrowstyle="->", color='#d97706', lw=1.5)
@@ -102,19 +102,19 @@ def generate_stackup_diagram(output_path: str = "pcb_stackup_2layer.png"):
     )
 
     # SMA Connector Clamping Annotation (Right Edge)
-    rect_sma_pin = Rectangle((10.1, y_top_cu + h_cu), 0.7, 0.25, facecolor='#2563eb', edgecolor='#1d4ed8')
-    rect_sma_body_top = Rectangle((10.3, y_top_cu + h_cu + 0.35), 0.9, 0.4, facecolor='#64748b', edgecolor='#334155')
-    rect_sma_body_bot = Rectangle((10.3, y_bottom_gnd - 0.45), 0.9, 0.4, facecolor='#64748b', edgecolor='#334155')
+    rect_sma_pin = Rectangle((9.8, y_top_cu + h_cu), 0.7, 0.25, facecolor='#2563eb', edgecolor='#1d4ed8')
+    rect_sma_body_top = Rectangle((10.1, y_top_cu + h_cu + 0.35), 0.9, 0.4, facecolor='#64748b', edgecolor='#334155')
+    rect_sma_body_bot = Rectangle((10.1, y_bottom_gnd - 0.45), 0.9, 0.4, facecolor='#64748b', edgecolor='#334155')
     ax.add_patch(rect_sma_pin)
     ax.add_patch(rect_sma_body_top)
     ax.add_patch(rect_sma_body_bot)
-    ax.plot([10.75, 10.75], [y_bottom_gnd - 0.05, y_top_cu + h_cu + 0.35], color='#475569', lw=2.5)
-    ax.text(10.75, y_top_cu + 1.1, "Edge-Launch SMA / 2.92mm\nJack Clamping Top & Bottom",
+    ax.plot([10.55, 10.55], [y_bottom_gnd - 0.05, y_top_cu + h_cu + 0.35], color='#475569', lw=2.5)
+    ax.text(10.55, y_top_cu + 1.25, "Edge-Launch SMA / 2.92mm\nJack Clamping Top & Bottom",
             ha='center', va='bottom', fontsize=8, fontweight='bold', color='#1e3a8a')
 
     # Formatting
     ax.set_xlim(-4.2, 12.0)
-    ax.set_ylim(-1.3, 3.2)
+    ax.set_ylim(-1.3, 3.6)
     ax.set_aspect('equal')
     ax.axis('off')
     ax.set_title("2-Layer PCB Stackup Cross-Section (Rogers RO4350B, 6.6 mil)", fontsize=11, fontweight='bold', pad=12)
