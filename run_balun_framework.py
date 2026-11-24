@@ -128,12 +128,14 @@ def run_pipeline():
         tech=tech,
         pixel_size_um=100.0,
         overlap_ratio=0.20,
-        feed_length_um=800.0,
+        conn_pitch_mm=9.525,
+        launch_len_mm=2.5,
+        bend_len_mm=5.0,
         cell_name="PIXELATED_BALUN",
         output_gds_path=gds_pixel_path,
         output_png_path=png_pixel_path
     )
-    print(f"[Pixelated Layout Dimensions]: {pix_w:.2f} mm x {pix_h:.2f} mm")
+    print(f"[Pixelated Balun with GND & SMA Dimensions]: {pix_w:.2f} mm x {pix_h:.2f} mm (Pitch = 9.525 mm / 0.375\")")
 
     # -------------------------------------------------------------
     # Step 6: Keysight ADS Integration Bundle Generation

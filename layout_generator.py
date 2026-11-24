@@ -31,31 +31,53 @@ LAYER_PORTS = (4, 0)           # Layer 4: Port pins / boundaries (pin)
 def generate_pixelated_balun_layout(
     grid: np.ndarray,
     tech: PCBTechnology,
-    pixel_size_um: float = 120.0,
+    pixel_size_um: float = 100.0,
     overlap_ratio: float = 0.20,
-    feed_length_um: float = 1000.0,
+    conn_pitch_mm: float = 9.525,  # 0.375" standard SMA edge-launch connector clearance
+    launch_len_mm: float = 2.5,
+    bend_len_mm: float = 5.0,
     cell_name: str = "PIXELATED_BALUN",
     output_gds_path: str = "pixelated_balun.gds",
     output_png_path: Optional[str] = "pixelated_balun_layout.png"
 ) -> Tuple[gdstk.Cell, float, float]:
     """
-    Converts a binary grid into a physical PCB layout:
-      - Each '1' pixel becomes a metal rectangle of size (pixel_size * (1 + overlap_ratio))
-        to ensure solid electrical and diagonal contact (as in Karahan et al. JSSC 2023).
-      - Overlapping pixels are merged into contiguous polygons using Shapely.
-      - 50-Ohm feed lines are automatically attached at Port 1 (Input), Port 2 (Out +), Port 3 (Out -).
+    Converts a binary grid into a complete, test-ready PCB layout:
+      - Active pixelated core with 20% diagonal overlap for galvanic DC/RF continuity.
+      - Solid bottom ground plane (Layer 2) across the entire board.
+      - Top coplanar ground flood with clean keepout clearance around the pixelated core.
+      - Standard edge-launch SMA / 2.92mm connector footprints at all 3 ports:
+        * 50-Ohm center signal launch pads.
+        * Flanking top ground pads with 200 um clearance (GCPW transition).
+        * Ground stitching via fences (Layer 3, 0.3 mm drill) connecting top to bottom ground.
+      - Symmetrical, length-matched differential routing arms with S-bends to expand to
+        the standard 9.525 mm (0.375") center-to-center connector pitch (L2 == L3, 0 ps skew).
+      - Port pins (Layer 4) for automated Keysight ADS Momentum/RFPro port binding.
     """
     n_rows, n_cols = grid.shape
-    w_50_um = tech.synth_microstrip_width(50.0)[0] * 1e6
+    w_50_m, eps_0 = tech.synth_microstrip_width(50.0)
+    w_50_um = w_50_m * 1e6
+    gcpw_gap_um = 200.0  # 200 um ground clearance gap
+
     p_step = pixel_size_um
     p_box = pixel_size_um * (1.0 + overlap_ratio)
     offset = (p_box - p_step) / 2.0
 
-    # Create Shapely boxes for each metal pixel
+    core_w = n_cols * p_step
+    core_h = n_rows * p_step
+
+    launch_len_um = launch_len_mm * 1e3
+    bend_len_um = bend_len_mm * 1e3
+    target_pitch_um = conn_pitch_mm * 1e3
+    board_h_um = target_pitch_um + 4000.0  # 13.525 mm total board height
+
+    polygons_top = []
+    via_list = []
+
+    # 1. Pixelated Active Core (Centered along y = 0)
     pixel_boxes = []
     for r in range(n_rows):
-        # r = 0 is top row; y increases downwards in matrix, upwards in Cartesian
-        y_center = (n_rows - 1 - r) * p_step
+        # Center row (n_rows/2) corresponds to y = 0
+        y_center = (n_rows / 2.0 - 0.5 - r) * p_step
         for c in range(n_cols):
             if grid[r, c] == 1:
                 x_center = c * p_step
@@ -63,41 +85,102 @@ def generate_pixelated_balun_layout(
                         x_center + p_step + offset, y_center + p_step + offset)
                 pixel_boxes.append(b)
 
-    # Merge touching/overlapping pixels into unified polygons
-    merged = unary_union(pixel_boxes)
+    core_metal = unary_union(pixel_boxes) if pixel_boxes else Polygon()
+    polygons_top.append(core_metal)
 
-    # Core active bounding dimensions
-    core_w = n_cols * p_step
-    core_h = n_rows * p_step
+    # 2. Port 1 Input Microstrip Feed & SMA Footprint (x: -launch_len_um to 0, y: 0)
+    x_p1 = -launch_len_um
+    p1_trace = box(x_p1, -w_50_um / 2.0, 0.0, w_50_um / 2.0)
+    polygons_top.append(p1_trace)
 
-    # Feed line definitions
-    # Port 1: Left edge center
-    p1_y = (n_rows / 2.0) * p_step
-    feed1 = box(-feed_length_um, p1_y - w_50_um / 2.0, 0.0, p1_y + w_50_um / 2.0)
+    # Flanking top ground pads at Port 1 SMA launch
+    gnd_in_top = box(x_p1, w_50_um / 2.0 + gcpw_gap_um, 0.0, board_h_um / 2.0)
+    gnd_in_bot = box(x_p1, -board_h_um / 2.0, 0.0, -w_50_um / 2.0 - gcpw_gap_um)
+    polygons_top.extend([gnd_in_top, gnd_in_bot])
 
-    # Port 2: Right edge upper
-    p2_y = (3.0 * n_rows / 4.0) * p_step
-    feed2 = box(core_w, p2_y - w_50_um / 2.0, core_w + feed_length_um, p2_y + w_50_um / 2.0)
+    # Ground stitching vias at Port 1
+    via_xs_in = np.linspace(x_p1 + 300.0, -300.0, 4)
+    for vx in via_xs_in:
+        via_list.append((vx, w_50_um / 2.0 + gcpw_gap_um + 400.0))
+        via_list.append((vx, -w_50_um / 2.0 - gcpw_gap_um - 400.0))
 
-    # Port 3: Right edge lower
-    p3_y = (n_rows / 4.0) * p_step
-    feed3 = box(core_w, p3_y - w_50_um / 2.0, core_w + feed_length_um, p3_y + w_50_um / 2.0)
+    # 3. Symmetrical Length-Matched Differential S-Bends (x: core_w to core_w + bend_len_um)
+    # Port 2 exits upper grid edge; Port 3 exits lower grid edge
+    y2_start = (n_rows / 4.0) * p_step
+    y3_start = -y2_start
+    y2_end = target_pitch_um / 2.0
+    y3_end = -y2_end
 
-    # Merge core polygons with feed lines
-    full_layout_geom = unary_union([merged, feed1, feed2, feed3])
+    x_bend = np.linspace(core_w, core_w + bend_len_um, 80)
+    tau = (x_bend - core_w) / bend_len_um
+    y_shift = 0.5 * (1.0 - np.cos(np.pi * tau))
+
+    y2_center = y2_start + (y2_end - y2_start) * y_shift
+    y3_center = -y2_center  # Exactly mirror symmetric: L2 == L3
+
+    def make_ribbon(xc, yc, w):
+        top_pts = list(zip(xc, yc + w / 2.0))
+        bot_pts = list(zip(xc[::-1], yc[::-1] - w / 2.0))
+        return Polygon(top_pts + bot_pts)
+
+    arm2_bend = make_ribbon(x_bend, y2_center, w_50_um)
+    arm3_bend = make_ribbon(x_bend, y3_center, w_50_um)
+    polygons_top.extend([arm2_bend, arm3_bend])
+
+    # 4. Differential Straight Launches & SMA Footprints (Ports 2 & 3)
+    x_b_end = core_w + bend_len_um
+    x_p23 = x_b_end + launch_len_um
+
+    arm2_launch = box(x_b_end, y2_end - w_50_um / 2.0, x_p23, y2_end + w_50_um / 2.0)
+    arm3_launch = box(x_b_end, y3_end - w_50_um / 2.0, x_p23, y3_end + w_50_um / 2.0)
+    polygons_top.extend([arm2_launch, arm3_launch])
+
+    # Flanking top ground pads at Ports 2 & 3 SMA launches
+    gnd_out_top = box(x_b_end, y2_end + w_50_um / 2.0 + gcpw_gap_um, x_p23, board_h_um / 2.0)
+    gnd_out_mid = box(x_b_end, y3_end + w_50_um / 2.0 + gcpw_gap_um, x_p23, y2_end - w_50_um / 2.0 - gcpw_gap_um)
+    gnd_out_bot = box(x_b_end, -board_h_um / 2.0, x_p23, y3_end - w_50_um / 2.0 - gcpw_gap_um)
+    polygons_top.extend([gnd_out_top, gnd_out_mid, gnd_out_bot])
+
+    # Ground stitching vias at Ports 2 & 3
+    via_xs_out = np.linspace(x_b_end + 300.0, x_p23 - 300.0, 4)
+    for vx in via_xs_out:
+        via_list.append((vx, y2_end + w_50_um / 2.0 + gcpw_gap_um + 400.0))
+        via_list.append((vx, y2_end - w_50_um / 2.0 - gcpw_gap_um - 400.0))
+        via_list.append((vx, y3_end + w_50_um / 2.0 + gcpw_gap_um + 400.0))
+        via_list.append((vx, y3_end - w_50_um / 2.0 - gcpw_gap_um - 400.0))
+
+    # 5. Top Coplanar Ground Flood with Core Keepout
+    # Keepout box leaves 600 um clearance around the pixelated balun core
+    keepout = box(-100.0, -core_h / 2.0 - 600.0, core_w + 100.0, core_h / 2.0 + 600.0)
+    # Flood region above and below the bends
+    flood_top = box(0.0, y2_start + w_50_um / 2.0 + 600.0, x_b_end, board_h_um / 2.0)
+    flood_bot = box(0.0, -board_h_um / 2.0, x_b_end, y3_start - w_50_um / 2.0 - 600.0)
+    top_flood_raw = unary_union([flood_top, flood_bot])
+    top_flood = top_flood_raw.difference(keepout)
+    polygons_top.append(top_flood)
+
+    # Perimeter stitching vias for top ground flood
+    via_xs_mid = np.linspace(300.0, x_b_end - 300.0, 6)
+    for vx in via_xs_mid:
+        via_list.append((vx, board_h_um / 2.0 - 600.0))
+        via_list.append((vx, -board_h_um / 2.0 + 600.0))
+
+    # Merge all Top Metal into unified DRC-clean polygon
+    full_top_metal = unary_union(polygons_top)
+
+    # 6. Solid Bottom Ground Plane (Layer 2) spanning the entire board
+    bottom_gnd = box(x_p1, -board_h_um / 2.0, x_p23, board_h_um / 2.0)
 
     # Build GDSII Cell using gdstk
-    lib = gdstk.Library(unit=1e-6, precision=1e-9)  # Coordinates in micrometers
+    lib = gdstk.Library(unit=1e-6, precision=1e-9)
     cell = lib.new_cell(cell_name)
 
-    # Helper to add Shapely geometry to GDS cell
     def add_geom_to_cell(geom, layer_dt):
         if geom.is_empty:
             return
         if isinstance(geom, Polygon):
             coords = list(geom.exterior.coords)[:-1]
             cell.add(gdstk.Polygon(coords, layer=layer_dt[0], datatype=layer_dt[1]))
-            # Handle holes if any
             for interior in geom.interiors:
                 hole_coords = list(interior.coords)[:-1]
                 cell.add(gdstk.Polygon(hole_coords, layer=layer_dt[0], datatype=layer_dt[1]))
@@ -105,42 +188,46 @@ def generate_pixelated_balun_layout(
             for poly in geom.geoms:
                 add_geom_to_cell(poly, layer_dt)
 
-    add_geom_to_cell(full_layout_geom, LAYER_TOP_METAL)
+    # Add Layer 1 (Top Metal) and Layer 2 (Bottom Ground Plane)
+    add_geom_to_cell(full_top_metal, LAYER_TOP_METAL)
+    add_geom_to_cell(bottom_gnd, LAYER_BOTTOM_METAL)
 
-    # Add Port Pin Markers (Layer 4) for Keysight ADS
-    pin_len = 100.0  # 100 um
-    # Port 1 Pin
-    cell.add(gdstk.rectangle((-feed_length_um, p1_y - w_50_um/2.0),
-                             (-feed_length_um + pin_len, p1_y + w_50_um/2.0),
+    # Add Layer 3 (Ground Vias, 300 um drill)
+    via_r_um = 150.0
+    for vx, vy in via_list:
+        v_circ = gdstk.ellipse((vx, vy), radius=via_r_um, layer=LAYER_VIAS[0], datatype=LAYER_VIAS[1])
+        cell.add(v_circ)
+
+    # Add Layer 4 (Port Pin Markers for ADS Momentum/RFPro)
+    pin_len = 150.0
+    cell.add(gdstk.rectangle((x_p1, -w_50_um / 2.0), (x_p1 + pin_len, w_50_um / 2.0),
                              layer=LAYER_PORTS[0], datatype=LAYER_PORTS[1]))
-    # Port 2 Pin
-    cell.add(gdstk.rectangle((core_w + feed_length_um - pin_len, p2_y - w_50_um/2.0),
-                             (core_w + feed_length_um, p2_y + w_50_um/2.0),
+    cell.add(gdstk.rectangle((x_p23 - pin_len, y2_end - w_50_um / 2.0), (x_p23, y2_end + w_50_um / 2.0),
                              layer=LAYER_PORTS[0], datatype=LAYER_PORTS[1]))
-    # Port 3 Pin
-    cell.add(gdstk.rectangle((core_w + feed_length_um - pin_len, p3_y - w_50_um/2.0),
-                             (core_w + feed_length_um, p3_y + w_50_um/2.0),
+    cell.add(gdstk.rectangle((x_p23 - pin_len, y3_end - w_50_um / 2.0), (x_p23, y3_end + w_50_um / 2.0),
                              layer=LAYER_PORTS[0], datatype=LAYER_PORTS[1]))
 
     # Export GDS file
     lib.write_gds(output_gds_path)
-    print(f"[GDSII Layout] Saved layout to {output_gds_path}")
+    print(f"[GDSII Layout] Saved pixelated balun layout with GND plane & SMA footprints to {output_gds_path}")
 
-    # Generate PNG preview
+    # Generate PNG preview with ground plane extent and vias
     if output_png_path:
         render_layout_png(
-            full_geom=full_layout_geom,
-            title=f"Inverse-Designed Pixelated Balun ({tech.name})",
+            full_geom=full_top_metal,
+            title=f"Pixelated Balun Board with GND Plane & SMA Footprints (Pitch = {conn_pitch_mm:.2f} mm)",
             output_path=output_png_path,
             ports=[
-                (-feed_length_um, p1_y, "Port 1 (Single-Ended Input)"),
-                (core_w + feed_length_um, p2_y, "Port 2 (Balanced +)"),
-                (core_w + feed_length_um, p3_y, "Port 3 (Balanced -)")
-            ]
+                (x_p1, 0.0, "Port 1 (SMA Input)"),
+                (x_p23, y2_end, f"Port 2 (SMA +, {conn_pitch_mm/2:.2f} mm)"),
+                (x_p23, y3_end, f"Port 3 (SMA -, -{conn_pitch_mm/2:.2f} mm)")
+            ],
+            vias=via_list,
+            bottom_gnd=(x_p1, -board_h_um / 2.0, x_p23, board_h_um / 2.0)
         )
 
-    total_w_mm = (core_w + 2 * feed_length_um) / 1000.0
-    total_h_mm = core_h / 1000.0
+    total_w_mm = (x_p23 - x_p1) / 1000.0
+    total_h_mm = board_h_um / 1000.0
     return cell, total_w_mm, total_h_mm
 
 
@@ -279,11 +366,29 @@ def render_layout_png(
     full_geom,
     title: str,
     output_path: str,
-    ports: List[Tuple[float, float, str]]
+    ports: List[Tuple[float, float, str]],
+    vias: Optional[List[Tuple[float, float]]] = None,
+    bottom_gnd: Optional[Tuple[float, float, float, float]] = None
 ):
     """Renders a clean high-resolution engineering plot of the PCB layout."""
-    fig, ax = plt.subplots(figsize=(12, 6), dpi=180)
+    fig, ax = plt.subplots(figsize=(13, 6.5), dpi=180)
 
+    # 1. Render Bottom Ground Plane extent if provided
+    if bottom_gnd is not None:
+        gx0, gy0, gx1, gy1 = bottom_gnd
+        bg_patch = MplRectangle(
+            (gx0 / 1000.0, gy0 / 1000.0),
+            (gx1 - gx0) / 1000.0,
+            (gy1 - gy0) / 1000.0,
+            facecolor='#f1f5f9',
+            edgecolor='#94a3b8',
+            linestyle='--',
+            linewidth=1.2,
+            label='Bottom Ground Plane (Layer 2)'
+        )
+        ax.add_patch(bg_patch)
+
+    # 2. Render Top Copper Polygons
     def plot_polygon(p):
         ext = np.array(p.exterior.coords)
         poly_patch = MplPolygon(ext / 1000.0, facecolor='#c88a32', edgecolor='#6e4b16', lw=1.2, alpha=0.9, label='Top Copper')
@@ -299,12 +404,26 @@ def render_layout_png(
         for poly in full_geom.geoms:
             plot_polygon(poly)
 
-    # Mark Ports
+    # 3. Render Ground Vias (Layer 3)
+    if vias:
+        for idx, (vx, vy) in enumerate(vias):
+            via_circle = plt.Circle(
+                (vx / 1000.0, vy / 1000.0),
+                radius=0.15,  # 0.3 mm diameter
+                facecolor='#008080',
+                edgecolor='#004d4d',
+                linewidth=0.8,
+                zorder=8,
+                label='Ground Vias (Layer 3)' if idx == 0 else ""
+            )
+            ax.add_patch(via_circle)
+
+    # 4. Mark Ports
     colors = ['#1f77b4', '#2ca02c', '#d62728']
     for idx, (px, py, label) in enumerate(ports):
         c = colors[idx % len(colors)]
         ax.plot(px / 1000.0, py / 1000.0, marker='o', markersize=9, color=c, markeredgecolor='black', zorder=10)
-        offset_y = 0.35 if py >= 0 else -0.35
+        offset_y = 0.45 if py >= 0 else -0.45
         ax.annotate(label, xy=(px / 1000.0, py / 1000.0), xytext=(px / 1000.0, (py / 1000.0) + offset_y),
                     fontsize=9, fontweight='bold', color=c,
                     ha='center', arrowprops=dict(arrowstyle="->", color=c, lw=1.2))
@@ -315,6 +434,12 @@ def render_layout_png(
     ax.set_xlabel("X Position (mm)", fontsize=11)
     ax.set_ylabel("Y Position (mm)", fontsize=11)
     ax.set_title(title, fontsize=12, fontweight='bold')
+
+    # Deduplicate legend items
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    ax.legend(by_label.values(), by_label.keys(), loc='upper left', fontsize=8.5, framealpha=0.9)
+
     plt.tight_layout()
     plt.savefig(output_path, bbox_inches='tight')
     plt.close()
